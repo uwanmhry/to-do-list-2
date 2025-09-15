@@ -1,4 +1,4 @@
-import { getTasks, addTask, updateTask, deleteTask, clearAllTasks } from '$lib/db/tasks';
+import { getTasks, addTask, updateTask, deleteTask, clearAllTasks } from '$lib/stores/tasks';
 import { json } from '@sveltejs/kit';
 
 export const GET = () => json(getTasks());
