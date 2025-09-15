@@ -1,8 +1,8 @@
 <script>
   import { supabase } from '$lib/supabaseClient';
-  import { onMount, beforeUpdate } from 'svelte';
-  import { fade, fly } from 'svelte/transition';
+  import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
+  import { dndzone } from 'svelte-dnd-action';
 
   let tasks = [];
   let newTask = '';
@@ -15,111 +15,63 @@
   let editText = '';
   let editInputEl;
 
-  // Debounce variables
-  let timeoutId;
-  const debounceDelay = 300;
-
-  // Optimasi: Batasi jumlah operasi real-time
-  onMount(async () => {
-    try {
-      await loadTasks();
-      
-      // Real-time listener dengan filter yang lebih spesifik
-      const channel = supabase
-        .channel('tasks_channel')
-        .on(
-          'postgres_changes',
-          { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'tasks' 
-          },
-          handleNewTask
-        )
-        .on(
-          'postgres_changes',
-          { 
-            event: 'UPDATE', 
-            schema: 'public', 
-            table: 'tasks' 
-          },
-          handleUpdateTask
-        )
-        .on(
-          'postgres_changes',
-          { 
-            event: 'DELETE', 
-            schema: 'public', 
-            table: 'tasks' 
-          },
-          handleDeleteTask
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } catch (error) {
-      console.error('Error initializing component:', error);
-    } finally {
-      isLoading = false;
-    }
-  });
-
-  // Handler untuk real-time updates yang lebih efisien
-  function handleNewTask(payload) {
-    tasks = [...tasks, payload.new];
-  }
-
-  function handleUpdateTask(payload) {
-    tasks = tasks.map(task => 
-      task.id === payload.new.id ? payload.new : task
-    );
-  }
-
-  function handleDeleteTask(payload) {
-    tasks = tasks.filter(task => task.id !== payload.old.id);
-  }
-
+  // Load tasks
   async function loadTasks() {
     try {
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
-        .order('created_at', { ascending: true });
+        .order('order', { ascending: true });
 
-      if (error) {
-        console.error('Error loading tasks:', error.message);
-        return;
-      }
-      
+      if (error) throw error;
       tasks = data ?? [];
-    } catch (error) {
-      console.error('Unexpected error in loadTasks:', error);
+    } catch (err) {
+      console.error('Error loading tasks:', err);
+    } finally {
+      isLoading = false;
     }
   }
+
+  onMount(async () => {
+    await loadTasks();
+
+    const channel = supabase
+      .channel('tasks_channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, payload => {
+        switch(payload.eventType) {
+          case 'INSERT':
+            tasks = [...tasks, payload.new].sort((a,b) => a.order - b.order);
+            break;
+          case 'UPDATE':
+            tasks = tasks.map(t => t.id === payload.new.id ? payload.new : t).sort((a,b) => a.order - b.order);
+            break;
+          case 'DELETE':
+            tasks = tasks.filter(t => t.id !== payload.old.id).sort((a,b) => a.order - b.order);
+            break;
+        }
+      })
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  });
 
   async function addTask() {
     const text = newTask.trim();
-    if (text === '' || isAdding) return;
-    
+    if (!text || isAdding) return;
+
     isAdding = true;
     try {
-      const { error } = await supabase.from('tasks').insert([{ text, done: false }]);
+      const { error } = await supabase
+        .from('tasks')
+        .insert([{ text, done: false, order: tasks.length }]);
+
       if (error) throw error;
       newTask = '';
-    } catch (error) {
-      console.error('Error adding task:', error.message);
+    } catch (err) {
+      console.error('Error adding task:', err);
     } finally {
       isAdding = false;
     }
-  }
-
-  // Debounced input handler
-  function handleInput(e) {
-    newTask = e.target.value;
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(addTask, debounceDelay);
   }
 
   async function toggleTask(task) {
@@ -128,10 +80,9 @@
         .from('tasks')
         .update({ done: !task.done })
         .eq('id', task.id);
-        
       if (error) throw error;
-    } catch (error) {
-      console.error('Error toggling task:', error.message);
+    } catch (err) {
+      console.error('Error toggling task:', err);
     }
   }
 
@@ -139,23 +90,23 @@
     try {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
       if (error) throw error;
-    } catch (error) {
-      console.error('Error deleting task:', error.message);
+    } catch (err) {
+      console.error('Error deleting task:', err);
     }
   }
 
   function confirmClearAll() {
-    if (tasks.length === 0) return;
+    if (!tasks.length) return;
     showDeleteAllModal = true;
   }
 
   async function clearAll() {
     try {
-      const { error } = await supabase.from('tasks').delete().neq('id', 0);
+      const { error } = await supabase.from('tasks').delete();
       if (error) throw error;
       showDeleteAllModal = false;
-    } catch (error) {
-      console.error('Error clearing all tasks:', error.message);
+    } catch (err) {
+      console.error('Error clearing tasks:', err);
     }
   }
 
@@ -163,32 +114,23 @@
     taskToEdit = task;
     editText = task.text;
     showEditModal = true;
-    
-    // Focus on input after modal renders
-    setTimeout(() => {
-      if (editInputEl) {
-        editInputEl.focus();
-        editInputEl.select();
-      }
-    }, 100);
+    setTimeout(() => editInputEl?.focus(), 100);
   }
 
   async function saveEdit() {
-    if (!taskToEdit || editText.trim() === '') {
+    if (!taskToEdit || !editText.trim()) {
       showEditModal = false;
       return;
     }
-    
     try {
       const { error } = await supabase
         .from('tasks')
         .update({ text: editText.trim() })
         .eq('id', taskToEdit.id);
-        
       if (error) throw error;
       showEditModal = false;
-    } catch (error) {
-      console.error('Error saving edit:', error.message);
+    } catch (err) {
+      console.error('Error saving edit:', err);
     }
   }
 
@@ -197,10 +139,28 @@
     if (e.key === 'Escape') showEditModal = false;
   }
 
-  // Computed properties
+  // Drag & drop handler
+  async function handleDnd({ detail }) {
+    const { items } = detail;
+    tasks = items; // Optimistic UI update
+
+    try {
+      // Filter placeholder items
+      const realTasks = items.filter(t => typeof t.id === 'number');
+
+      await Promise.all(
+        realTasks.map((t, idx) =>
+          supabase.from('tasks').update({ order: idx }).eq('id', t.id)
+        )
+      );
+    } catch (err) {
+      console.error('Error updating order:', err.message);
+    }
+  }
+
   $: completedCount = tasks.filter(t => t.done).length;
   $: totalCount = tasks.length;
-  $: progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  $: progress = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
   $: hasTasks = totalCount > 0;
 </script>
 
@@ -217,10 +177,7 @@
           <span class="text-slate-500">{completedCount}/{totalCount} ({progress}%)</span>
         </div>
         <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
-          <div
-            class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
-            style={`width: ${progress}%`}
-          ></div>
+          <div class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out" style={`width: ${progress}%`}></div>
         </div>
       </div>
     {/if}
@@ -238,12 +195,11 @@
         on:click={addTask}
         class="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl transition-all flex items-center gap-1.5 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={isLoading || !newTask.trim() || isAdding}
-        aria-label="Tambah tugas"
       >
         {#if isAdding}
           <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
         {:else}
-          <Plus size={18} /> 
+          <Plus size={18} />
         {/if}
         <span class="hidden sm:inline">{isAdding ? 'Menambah...' : 'Tambah'}</span>
       </button>
@@ -254,161 +210,59 @@
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
       </div>
     {:else if hasTasks}
-      {#key tasks.length}
-        <ul class="space-y-3 mb-6">
-          {#each tasks as task (task.id)}
-            <li
-              class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all duration-200 border border-slate-200/50"
-            >
-              <div class="flex items-center gap-3 flex-1 min-w-0">
-                <input
-                  type="checkbox"
-                  checked={task.done}
-                  on:change={() => toggleTask(task)}
-                  class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"
-                  aria-label={task.done ? 'Tandai belum selesai' : 'Tandai selesai'}
-                />
-                <span
-                  class:line-through={task.done}
-                  class:opacity-60={task.done}
-                  class="truncate transition-all"
-                >
-                  {task.text}
-                </span>
-              </div>
-
-              <div class="flex gap-2 ml-2 flex-shrink-0">
-                <button
-                  on:click={() => openEdit(task)}
-                  class="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                  aria-label="Edit tugas"
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  on:click={() => deleteTask(task.id)}
-                  class="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                  aria-label="Hapus tugas"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </li>
-          {/each}
-        </ul>
-
-        <button
-          on:click={confirmClearAll}
-          class="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all font-medium flex items-center justify-center gap-2"
-          disabled={isLoading}
-        >
-          <Trash2 size={16} />
-          Hapus Semua
-        </button>
-      {/key}
+      <ul use:dndzone={{ items: tasks, flipDurationMs: 150 }} on:consider={handleDnd} on:finalize={handleDnd} class="space-y-3 mb-6">
+        {#each tasks as task (task.id)}
+          <li class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200/50">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <input type="checkbox" checked={task.done} on:change={() => toggleTask(task)} class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"/>
+              <span class:line-through={task.done} class:opacity-60={task.done} class="truncate transition-all">{task.text}</span>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button on:click={() => openEdit(task)} class="p-2 hover:bg-slate-200 rounded-full transition-all"><Pencil size={16}/></button>
+              <button on:click={() => deleteTask(task.id)} class="p-2 hover:bg-red-100 rounded-full transition-all text-red-500"><Trash2 size={16}/></button>
+            </div>
+          </li>
+        {/each}
+      </ul>
     {:else}
-      <div class="text-center py-10 text-slate-500">
-        <div class="text-4xl mb-3">🎉</div>
-        <p>Belum ada tugas</p>
-        <p class="text-sm mt-1">Tambahkan tugas pertama Anda di atas</p>
+      <div class="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+        <AlertCircle size={36}/> <span>Tidak ada tugas</span>
       </div>
     {/if}
 
-    <!-- Modal Hapus Semua -->
-    {#if showDeleteAllModal}
-      <div
-        class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-        on:click={() => (showDeleteAllModal = false)}
-      >
-        <div
-          class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md border border-slate-200"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-modal-title"
-          on:click|stopPropagation
-        >
-          <div class="flex items-start gap-3 mb-4">
-            <div class="p-2 bg-red-100 rounded-full mt-0.5">
-              <AlertCircle size={20} class="text-red-600" />
-            </div>
-            <div>
-              <h2 id="delete-modal-title" class="text-lg font-semibold text-slate-800">
-                Hapus Semua Tugas
-              </h2>
-              <p class="text-slate-600 mt-1 text-sm">
-                Semua tugas akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.
-              </p>
-            </div>
-          </div>
-          
-          <div class="flex justify-end gap-3 mt-6">
-            <button
-              on:click={() => (showDeleteAllModal = false)}
-              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all font-medium"
-            >
-              Batal
-            </button>
-            <button
-              on:click={clearAll}
-              class="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-all font-medium"
-            >
-              Ya, Hapus Semua
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Modal Edit -->
-    {#if showEditModal}
-      <div
-        class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
-        on:click={() => (showEditModal = false)}
-      >
-        <div
-          class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md border border-slate-200"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="edit-modal-title"
-          on:click|stopPropagation
-        >
-          <h2 id="edit-modal-title" class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-            <Pencil size={20} class="text-blue-500" />
-            Edit Tugas
-          </h2>
-          
-          <input
-            type="text"
-            bind:this={editInputEl}
-            bind:value={editText}
-            class="w-full border border-slate-200 rounded-xl p-3 mb-5 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
-            placeholder="Masukkan teks tugas..."
-            on:keydown={handleEditKeydown}
-          />
-          
-          <div class="flex justify-end gap-3">
-            <button
-              on:click={() => (showEditModal = false)}
-              class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-all font-medium"
-            >
-              Batal
-            </button>
-            <button
-              on:click={saveEdit}
-              class="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-all font-medium"
-              disabled={!editText.trim()}
-            >
-              Simpan
-            </button>
-          </div>
-        </div>
-      </div>
+    {#if hasTasks}
+      <button on:click={confirmClearAll} class="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all font-medium">Hapus Semua</button>
     {/if}
   </div>
+
+  {#if showDeleteAllModal}
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+        <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
+        <p>Apakah kamu yakin ingin menghapus semua tugas?</p>
+        <div class="flex justify-end gap-3 mt-4">
+          <button on:click={() => showDeleteAllModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
+          <button on:click={clearAll} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showEditModal}
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+        <h3 class="font-bold text-lg text-slate-800">Edit Tugas</h3>
+        <input bind:this={editInputEl} bind:value={editText} on:keydown={handleEditKeydown} type="text" class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"/>
+        <div class="flex justify-end gap-3 mt-4">
+          <button on:click={() => showEditModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
+          <button on:click={saveEdit} class="px-4 py-2 rounded-xl bg-blue-500 text-white">Simpan</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
-  .line-through {
-    text-decoration: line-through;
-  }
+  .line-through { text-decoration: line-through; }
+  .opacity-60 { opacity: 0.6; }
 </style>

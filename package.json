@@ -29,6 +29,7 @@
 		"@supabase/supabase-js": "^2.57.4",
 		"better-sqlite3": "^12.2.0",
 		"lucide-svelte": "^0.544.0",
-		"sqlite3": "^5.1.7"
+		"sqlite3": "^5.1.7",
+		"svelte-dnd-action": "^0.9.65"
 	}
 }
