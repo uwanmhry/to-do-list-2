@@ -1,7 +1,7 @@
 <script>
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
-  import { fade, fly, scale } from 'svelte/transition';
+  import { fade, fly } from 'svelte/transition';
 
   let tasks = [];
   let newTask = '';
@@ -12,60 +12,93 @@
   let editText = '';
   let editInputEl;
 
-  // Ambil data dari Supabase
+  // Load tasks pertama kali + setup realtime
   onMount(async () => {
     await loadTasks();
 
-    // Real-time listener (biar gak harus refresh)
+    // Realtime listener
     supabase
       .channel('public:tasks')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tasks' },
         (payload) => {
-          loadTasks(); // setiap ada insert/update/delete → reload
+          console.log('Realtime event:', payload);
+          if (payload.eventType === 'INSERT') {
+            tasks = [...tasks, payload.new];
+          }
+          if (payload.eventType === 'UPDATE') {
+            tasks = tasks.map((t) =>
+              t.id === payload.new.id ? payload.new : t
+            );
+          }
+          if (payload.eventType === 'DELETE') {
+            tasks = tasks.filter((t) => t.id !== payload.old.id);
+          }
         }
       )
       .subscribe();
   });
 
+  // Ambil semua data
   async function loadTasks() {
     const { data, error } = await supabase
       .from('tasks')
       .select('*')
       .order('created_at', { ascending: true });
 
-    if (error) {
-      console.error(error.message);
-    } else {
-      tasks = data ?? [];
-    }
+    if (!error) tasks = data ?? [];
+    else console.error(error.message);
   }
 
+  // Tambah task
   async function addTask() {
     const text = newTask.trim();
-    if (text === '') return;
-    await supabase.from('tasks').insert([{ text, done: false }]);
+    if (!text) return;
+
+    // Optimistic update
+    const tempId = Date.now();
+    const tempTask = { id: tempId, text, done: false };
+    tasks = [...tasks, tempTask];
     newTask = '';
+
+    const { error } = await supabase
+      .from('tasks')
+      .insert([{ text, done: false }]);
+    if (error) console.error(error.message);
   }
 
+  // Toggle done
   async function toggleTask(id, done) {
-    await supabase.from('tasks').update({ done: !done }).eq('id', id);
+    tasks = tasks.map((t) =>
+      t.id === id ? { ...t, done: !done } : t
+    );
+    const { error } = await supabase
+      .from('tasks')
+      .update({ done: !done })
+      .eq('id', id);
+    if (error) console.error(error.message);
   }
 
+  // Hapus task
   async function deleteTask(id) {
-    await supabase.from('tasks').delete().eq('id', id);
+    tasks = tasks.filter((t) => t.id !== id);
+    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    if (error) console.error(error.message);
   }
 
+  // Hapus semua
   function confirmClearAll() {
     showDeleteAllModal = true;
   }
-
   async function clearAll() {
-    await supabase.from('tasks').delete().neq('id', 0);
+    tasks = [];
+    const { error } = await supabase.from('tasks').delete().neq('id', 0);
+    if (error) console.error(error.message);
     showDeleteAllModal = false;
   }
 
+  // Edit
   function openEdit(task) {
     taskToEdit = task;
     editText = task.text;
@@ -75,22 +108,25 @@
       editInputEl?.select();
     }, 0);
   }
-
   async function saveEdit() {
     if (taskToEdit && editText.trim() !== '') {
-      await supabase
+      tasks = tasks.map((t) =>
+        t.id === taskToEdit.id ? { ...t, text: editText.trim() } : t
+      );
+      const { error } = await supabase
         .from('tasks')
         .update({ text: editText.trim() })
         .eq('id', taskToEdit.id);
+      if (error) console.error(error.message);
       showEditModal = false;
     }
   }
-
   function handleEditKeydown(e) {
     if (e.key === 'Enter') saveEdit();
     if (e.key === 'Escape') showEditModal = false;
   }
 
+  // Progress
   $: completed = tasks.filter((t) => t.done).length;
   $: progress =
     tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
@@ -100,7 +136,7 @@
   <div class="w-full max-w-md rounded-2xl shadow-lg p-6 bg-white">
     <h1 class="text-2xl font-bold text-center mb-4">📝 To-Do List</h1>
 
-    <!-- Progress bar -->
+    <!-- Progress -->
     <div class="mb-4">
       <div class="flex justify-between text-sm mb-1">
         <span class="font-medium text-gray-700">Progress</span>
@@ -132,13 +168,13 @@
       </button>
     </div>
 
-    <!-- Daftar tugas -->
+    <!-- List -->
     {#if tasks.length > 0}
       <ul class="space-y-3 mb-4">
         {#each tasks as task (task.id)}
           <li
-            in:fly={{ y: 20, duration: 250 }}
-            out:fade={{ duration: 200 }}
+            in:fly={{ y: 20, duration: 200 }}
+            out:fade={{ duration: 150 }}
             class="flex items-center justify-between p-3 rounded-lg shadow-sm bg-gray-50"
           >
             <div class="flex items-center gap-3">
@@ -151,15 +187,13 @@
               />
               <label
                 for={"checkbox-" + task.id}
-                class="cursor-pointer transform transition duration-150"
+                class="cursor-pointer transition"
                 class:line-through={task.done}
                 class:opacity-60={task.done}
-                class:scale-95={task.done}
               >
                 {task.text}
               </label>
             </div>
-
             <div class="flex gap-2">
               <button
                 type="button"
@@ -195,21 +229,15 @@
     {#if showDeleteAllModal}
       <div
         class="fixed inset-0 bg-black/25 flex items-center justify-center z-50"
-        in:fade={{ duration: 150 }}
-        out:fade={{ duration: 150 }}
+        in:fade
+        out:fade
         on:click={() => (showDeleteAllModal = false)}
       >
         <div
           class="bg-white rounded-xl shadow-lg p-6 w-80"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-modal-title"
-          tabindex="0"
-          in:scale={{ duration: 180 }}
-          out:scale={{ duration: 120 }}
           on:click|stopPropagation
         >
-          <h2 id="delete-modal-title" class="text-lg font-bold mb-3 text-gray-800">
+          <h2 class="text-lg font-bold mb-3 text-gray-800">
             Hapus Semua Tugas?
           </h2>
           <p class="text-gray-600 mb-5 text-sm">
@@ -217,14 +245,12 @@
           </p>
           <div class="flex justify-end gap-3">
             <button
-              type="button"
               on:click={() => (showDeleteAllModal = false)}
               class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition"
             >
               Batal
             </button>
             <button
-              type="button"
               on:click={clearAll}
               class="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition"
             >
@@ -239,23 +265,15 @@
     {#if showEditModal}
       <div
         class="fixed inset-0 bg-black/25 flex items-center justify-center z-50"
-        in:fade={{ duration: 150 }}
-        out:fade={{ duration: 150 }}
+        in:fade
+        out:fade
         on:click={() => (showEditModal = false)}
       >
         <div
           class="bg-white rounded-xl shadow-lg p-6 w-96"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="edit-modal-title"
-          tabindex="0"
-          in:scale={{ duration: 180 }}
-          out:scale={{ duration: 120 }}
           on:click|stopPropagation
         >
-          <h2 id="edit-modal-title" class="text-lg font-bold mb-4 text-gray-800">
-            Edit Tugas
-          </h2>
+          <h2 class="text-lg font-bold mb-4 text-gray-800">Edit Tugas</h2>
           <input
             type="text"
             bind:this={editInputEl}
@@ -266,14 +284,12 @@
           />
           <div class="flex justify-end gap-3">
             <button
-              type="button"
               on:click={() => (showEditModal = false)}
               class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition"
             >
               Batal
             </button>
             <button
-              type="button"
               on:click={saveEdit}
               class="px-4 py-2 rounded-lg bg-green-500 text-white hover:bg-green-600 transition"
             >
