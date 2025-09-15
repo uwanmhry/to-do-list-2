@@ -2,7 +2,6 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
-  import { dndzone } from 'svelte-dnd-action';
 
   let tasks = [];
   let newTask = '';
@@ -21,7 +20,8 @@
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
-        .order('order', { ascending: true });
+        .order('created_at', { ascending: true });
+
       if (error) throw error;
       tasks = data ?? [];
     } catch (err) {
@@ -39,13 +39,13 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, payload => {
         switch(payload.eventType) {
           case 'INSERT':
-            tasks = [...tasks, payload.new].sort((a,b) => a.order - b.order);
+            tasks = [...tasks, payload.new];
             break;
           case 'UPDATE':
-            tasks = tasks.map(t => t.id === payload.new.id ? payload.new : t).sort((a,b) => a.order - b.order);
+            tasks = tasks.map(t => t.id === payload.new.id ? payload.new : t);
             break;
           case 'DELETE':
-            tasks = tasks.filter(t => t.id !== payload.old.id).sort((a,b) => a.order - b.order);
+            tasks = tasks.filter(t => t.id !== payload.old.id);
             break;
         }
       })
@@ -60,9 +60,11 @@
 
     isAdding = true;
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('tasks')
-        .insert([{ text, done: false, order: tasks.length }]);
+        .insert([{ text, done: false }])
+        .select();
+
       if (error) throw error;
       newTask = '';
     } catch (err) {
@@ -73,14 +75,21 @@
   }
 
   async function toggleTask(task) {
+    // Optimistic update
+    task.done = !task.done;
+
     try {
       const { error } = await supabase
         .from('tasks')
-        .update({ done: !task.done })
+        .update({ done: task.done })
         .eq('id', task.id);
-      if (error) throw error;
+      if (error) {
+        console.error('Error toggling task:', error);
+        task.done = !task.done; // rollback
+      }
     } catch (err) {
       console.error('Error toggling task:', err);
+      task.done = !task.done; // rollback
     }
   }
 
@@ -137,22 +146,7 @@
     if (e.key === 'Escape') showEditModal = false;
   }
 
-  // Drag & drop handler
-  async function handleDnd({ detail }) {
-    const { items } = detail;
-    tasks = items; // Optimistic UI update
-    try {
-      const realTasks = items.filter(t => typeof t.id === 'number');
-      await Promise.all(
-        realTasks.map((t, idx) =>
-          supabase.from('tasks').update({ order: idx }).eq('id', t.id)
-        )
-      );
-    } catch (err) {
-      console.error('Error updating order:', err.message);
-    }
-  }
-
+  // Computed
   $: completedCount = tasks.filter(t => t.done).length;
   $: totalCount = tasks.length;
   $: progress = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -172,7 +166,10 @@
           <span class="text-slate-500">{completedCount}/{totalCount} ({progress}%)</span>
         </div>
         <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
-          <div class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out" style={`width: ${progress}%`}></div>
+          <div
+            class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+            style={`width: ${progress}%`}
+          ></div>
         </div>
       </div>
     {/if}
@@ -194,7 +191,7 @@
         {#if isAdding}
           <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
         {:else}
-          <Plus size={18}/>
+          <Plus size={18} />
         {/if}
         <span class="hidden sm:inline">{isAdding ? 'Menambah...' : 'Tambah'}</span>
       </button>
@@ -205,21 +202,19 @@
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
       </div>
     {:else if hasTasks}
-      <ul
-        use:dndzone={{
-          items: tasks,
-          flipDurationMs: 150,
-          longPressDelay: 200 // HARUS tahan 200ms dulu baru bisa drag
-        }}
-        on:consider={handleDnd}
-        on:finalize={handleDnd}
-        class="space-y-3 mb-6"
-      >
+      <ul class="space-y-3 mb-6">
         {#each tasks as task (task.id)}
           <li class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200/50">
             <div class="flex items-center gap-3 flex-1 min-w-0">
-              <input type="checkbox" checked={task.done} on:change={() => toggleTask(task)} class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"/>
-              <span class:line-through={task.done} class:opacity-60={task.done} class="truncate transition-all">{task.text}</span>
+              <input
+                type="checkbox"
+                checked={task.done}
+                on:change={() => toggleTask(task)}
+                class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"
+              />
+              <span class:line-through={task.done} class:opacity-60={task.done} class="truncate transition-all">
+                {task.text}
+              </span>
             </div>
             <div class="flex gap-2 ml-2">
               <button on:click={() => openEdit(task)} class="p-2 hover:bg-slate-200 rounded-full transition-all"><Pencil size={16}/></button>
