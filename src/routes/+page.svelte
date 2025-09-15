@@ -22,7 +22,6 @@
         .from('tasks')
         .select('*')
         .order('order', { ascending: true });
-
       if (error) throw error;
       tasks = data ?? [];
     } catch (err) {
@@ -64,7 +63,6 @@
       const { error } = await supabase
         .from('tasks')
         .insert([{ text, done: false, order: tasks.length }]);
-
       if (error) throw error;
       newTask = '';
     } catch (err) {
@@ -143,11 +141,8 @@
   async function handleDnd({ detail }) {
     const { items } = detail;
     tasks = items; // Optimistic UI update
-
     try {
-      // Filter placeholder items
       const realTasks = items.filter(t => typeof t.id === 'number');
-
       await Promise.all(
         realTasks.map((t, idx) =>
           supabase.from('tasks').update({ order: idx }).eq('id', t.id)
@@ -199,7 +194,7 @@
         {#if isAdding}
           <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
         {:else}
-          <Plus size={18} />
+          <Plus size={18}/>
         {/if}
         <span class="hidden sm:inline">{isAdding ? 'Menambah...' : 'Tambah'}</span>
       </button>
@@ -210,7 +205,16 @@
         <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
       </div>
     {:else if hasTasks}
-      <ul use:dndzone={{ items: tasks, flipDurationMs: 150 }} on:consider={handleDnd} on:finalize={handleDnd} class="space-y-3 mb-6">
+      <ul
+        use:dndzone={{
+          items: tasks,
+          flipDurationMs: 150,
+          longPressDelay: 200 // HARUS tahan 200ms dulu baru bisa drag
+        }}
+        on:consider={handleDnd}
+        on:finalize={handleDnd}
+        class="space-y-3 mb-6"
+      >
         {#each tasks as task (task.id)}
           <li class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200/50">
             <div class="flex items-center gap-3 flex-1 min-w-0">
