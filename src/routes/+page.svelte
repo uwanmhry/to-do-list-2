@@ -109,8 +109,10 @@
 
   async function clearAll() {
     try {
-      const { error } = await supabase.from('tasks').delete();
+      const { error } = await supabase.from('tasks').delete().neq('id', 0);
       if (error) throw error;
+
+      tasks = []; // reset array di frontend
       showDeleteAllModal = false;
     } catch (err) {
       console.error('Error clearing tasks:', err);
