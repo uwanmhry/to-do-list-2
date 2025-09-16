@@ -321,7 +321,4 @@
     60% { transform: translateX(-3px); }
     80% { transform: translateX(3px); }
   }
-  .animate-shake {
-    animation: shake 0.4s ease-in-out;
-  }
 </style>
