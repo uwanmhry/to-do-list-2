@@ -261,11 +261,11 @@
   {#if showDeleteModal}
     <div
       class="modal-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
-      role="button"
-      tabindex="0"
-      aria-label="Tutup modal"
       on:click={backdropClick}
-      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') backdropClick(e); }}
+      on:keydown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') backdropClick(e); }}
+      tabindex="0"
+      role="dialog"
+      aria-modal="true"
       transition:fade>
       <div transition:scale={{ duration: 200 }} class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
         <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
@@ -287,11 +287,11 @@
   {#if showEditModal}
     <div
       class="modal-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
-      role="button"
-      tabindex="0"
-      aria-label="Tutup modal"
       on:click={backdropClick}
-      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') backdropClick(e); }}
+      on:keydown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') backdropClick(e); }}
+      tabindex="0"
+      role="dialog"
+      aria-modal="true"
       transition:fade>
       <div transition:scale={{ duration: 200 }} class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
         <h3 class="font-bold text-lg text-slate-800">Edit Task</h3>
@@ -313,12 +313,4 @@
 <style>
   .line-through { text-decoration: line-through; }
   .opacity-60 { opacity: 0.6; }
-
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-4px); }
-    40% { transform: translateX(4px); }
-    60% { transform: translateX(-3px); }
-    80% { transform: translateX(3px); }
-  }
 </style>
