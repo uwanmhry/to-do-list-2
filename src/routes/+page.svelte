@@ -2,6 +2,8 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
+  import { addToast } from '$lib/stores/toast';
+  import Toast from '$lib/components/Toast.svelte';
 
   let tasks = [];
   let newTask = '';
@@ -56,21 +58,16 @@
 
   async function addTask() {
     const text = newTask.trim();
-    if (!text || isAdding) return;
+    if (!text) return;
 
-    isAdding = true;
     try {
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert([{ text, done: false }])
-        .select();
-
+      const { error } = await supabase.from('tasks').insert([{ text, done: false }]);
       if (error) throw error;
+      addToast('Task berhasil ditambahkan!', 'success');
       newTask = '';
     } catch (err) {
-      console.error('Error adding task:', err);
-    } finally {
-      isAdding = false;
+      console.error(err);
+      addToast('Gagal menambahkan task.', 'error');
     }
   }
 
@@ -97,8 +94,10 @@
     try {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
       if (error) throw error;
+      addToast('Task berhasil dihapus!', 'success');
     } catch (err) {
       console.error('Error deleting task:', err);
+      addToast('Gagal menghapus task.', 'error');
     }
   }
 
@@ -111,11 +110,13 @@
     try {
       const { error } = await supabase.from('tasks').delete().neq('id', 0);
       if (error) throw error;
+      addToast('Semua task berhasil dihapus!', 'success');
 
       tasks = []; // reset array di frontend
       showDeleteAllModal = false;
     } catch (err) {
       console.error('Error clearing tasks:', err);
+      addToast('Gagal menghapus semua task.', 'error');
     }
   }
 
@@ -137,9 +138,11 @@
         .update({ text: editText.trim() })
         .eq('id', taskToEdit.id);
       if (error) throw error;
+      addToast('Task berhasil diupdate!', 'success');
       showEditModal = false;
     } catch (err) {
       console.error('Error saving edit:', err);
+      addToast('Gagal mengupdate task.', 'error');
     }
   }
 
@@ -154,6 +157,8 @@
   $: progress = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
   $: hasTasks = totalCount > 0;
 </script>
+
+<Toast />
 
 <main class="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4 md:p-6">
   <div class="w-full max-w-md rounded-2xl shadow-lg p-6 bg-white border border-slate-100">
