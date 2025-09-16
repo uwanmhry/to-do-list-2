@@ -14,7 +14,9 @@
   // 🔥 modal konfirmasi (bisa untuk 1 task atau semua)
   let showDeleteModal = false;
   let deleteTarget = null; // null = semua, {id, text} = task tertentu
-
+  let shakeDelete = false;
+  
+  // 🔥 modal edit task
   let showEditModal = false;
   let taskToEdit = null;
   let editText = '';
@@ -237,19 +239,38 @@
   </div>
 
   {#if showDeleteModal}
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" transition:fade>
-      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4" in:fly={{ y: 40, duration: 250 }} out:fly={{ y: -40, duration: 250 }}>
+    <div 
+      class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" 
+      transition:fade
+      on:introstart={() => {
+        // aktifin efek shake pas modal muncul
+        shakeDelete = true;
+        setTimeout(() => (shakeDelete = false), 500);
+      }}
+    >
+      <div 
+        class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4"
+        transition:scale={{ duration: 200 }}
+      >
         <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
         <p>
-          {#if deleteTarget}
-            Apakah kamu yakin ingin menghapus task "<span class="font-medium">{deleteTarget.text}</span>"?
-          {:else}
-            Apakah kamu yakin ingin menghapus semua tugas?
-          {/if}
+          {deleteTarget 
+            ? `Apakah kamu yakin ingin menghapus "${deleteTarget.text}"?` 
+            : 'Apakah kamu yakin ingin menghapus semua tugas?'}
         </p>
         <div class="flex justify-end gap-3 mt-4">
-          <button on:click={() => showDeleteModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
-          <button on:click={doDelete} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
+          <button 
+            on:click={() => showDeleteModal = false} 
+            class="px-4 py-2 rounded-xl bg-slate-200"
+          >
+            Batal
+          </button>
+          <button 
+            on:click={doDelete} 
+            class="px-4 py-2 rounded-xl bg-red-500 text-white {shakeDelete ? 'animate-shake' : ''}"
+          >
+            Hapus
+          </button>
         </div>
       </div>
     </div>
@@ -278,4 +299,15 @@
 <style>
   .line-through { text-decoration: line-through; }
   .opacity-60 { opacity: 0.6; }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(3px); }
+  }
+  .animate-shake {
+    animation: shake 0.4s ease-in-out;
+  }
 </style>
