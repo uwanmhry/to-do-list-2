@@ -3,7 +3,7 @@
   import { addToast } from '$lib/stores/toast';
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
-  import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2 } from 'lucide-svelte';
   import { fly, fade, scale } from 'svelte/transition';
 
   let tasks = [];
@@ -14,8 +14,7 @@
   // 🔥 modal konfirmasi (bisa untuk 1 task atau semua)
   let showDeleteModal = false;
   let deleteTarget = null; // null = semua, {id, text} = task tertentu
-  let shakeDelete = false;
-  
+
   // 🔥 modal edit task
   let showEditModal = false;
   let taskToEdit = null;
@@ -48,7 +47,13 @@
     }
   }
 
-  onMount(loadTasks);
+  onMount(() => {
+    loadTasks();
+
+    // 🎹 global key handler (ESC & ENTER)
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
 
   async function addTask() {
     const text = newTask.trim();
@@ -88,20 +93,18 @@
   }
 
   function confirmDelete(task = null) {
-    deleteTarget = task; // null = semua, object = task tertentu
+    deleteTarget = task;
     showDeleteModal = true;
   }
 
   async function doDelete() {
     try {
       if (deleteTarget) {
-        // hapus 1 task
         const { error } = await supabase.from('tasks').delete().eq('id', deleteTarget.id);
         if (error) throw error;
         tasks = tasks.filter(t => t.id !== deleteTarget.id);
         addToast('Task berhasil dihapus!', 'info');
       } else {
-        // hapus semua
         const ids = tasks.map(t => t.id);
         const { error } = await supabase.from('tasks').delete().in('id', ids);
         if (error) throw error;
@@ -150,6 +153,23 @@
   function handleEditKeydown(e) {
     if (e.key === 'Enter') saveEdit();
     if (e.key === 'Escape') showEditModal = false;
+  }
+
+  function handleKeyDown(e) {
+    if ((showDeleteModal || showEditModal) && e.key === 'Escape') {
+      showDeleteModal = false;
+      showEditModal = false;
+    }
+    if (showDeleteModal && e.key === 'Enter') {
+      doDelete();
+    }
+  }
+
+  function backdropClick(e) {
+    if (e.target.classList.contains('modal-backdrop')) {
+      showDeleteModal = false;
+      showEditModal = false;
+    }
   }
 
   $: completedCount = tasks.filter(t => t.done).length;
@@ -239,53 +259,47 @@
   </div>
 
   {#if showDeleteModal}
-    <div 
-      class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" 
-      transition:fade
-      on:introstart={() => {
-        // aktifin efek shake pas modal muncul
-        shakeDelete = true;
-        setTimeout(() => (shakeDelete = false), 500);
-      }}
-    >
-      <div 
-        class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4"
-        transition:scale={{ duration: 200 }}
-      >
+    <div
+      class="modal-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+      role="button"
+      tabindex="0"
+      aria-label="Tutup modal"
+      on:click={backdropClick}
+      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') backdropClick(e); }}
+      transition:fade>
+      <div transition:scale={{ duration: 200 }} class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
         <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
         <p>
-          {deleteTarget 
-            ? `Apakah kamu yakin ingin menghapus "${deleteTarget.text}"?` 
-            : 'Apakah kamu yakin ingin menghapus semua tugas?'}
+          {#if deleteTarget}
+            Apakah kamu yakin ingin menghapus task <b>"{deleteTarget.text}"</b>?
+          {:else}
+            Apakah kamu yakin ingin menghapus semua task?
+          {/if}
         </p>
         <div class="flex justify-end gap-3 mt-4">
-          <button 
-            on:click={() => showDeleteModal = false} 
-            class="px-4 py-2 rounded-xl bg-slate-200"
-          >
-            Batal
-          </button>
-          <button 
-            on:click={doDelete} 
-            class="px-4 py-2 rounded-xl bg-red-500 text-white {shakeDelete ? 'animate-shake' : ''}"
-          >
-            Hapus
-          </button>
+          <button on:click={() => showDeleteModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
+          <button on:click={doDelete} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
         </div>
       </div>
     </div>
   {/if}
 
   {#if showEditModal}
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" transition:fade>
-      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4" in:scale={{ start: 0.9, duration: 250 }} out:scale={{ end: 0.9, duration: 200 }}>
-        <h3 class="font-bold text-lg text-slate-800">Edit Tugas</h3>
+    <div
+      class="modal-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+      role="button"
+      tabindex="0"
+      aria-label="Tutup modal"
+      on:click={backdropClick}
+      on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') backdropClick(e); }}
+      transition:fade>
+      <div transition:scale={{ duration: 200 }} class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+        <h3 class="font-bold text-lg text-slate-800">Edit Task</h3>
         <input
           bind:this={editInputEl}
           bind:value={editText}
           on:keydown={handleEditKeydown}
-          type="text"
-          class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
+          class="w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring"
         />
         <div class="flex justify-end gap-3 mt-4">
           <button on:click={() => showEditModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
