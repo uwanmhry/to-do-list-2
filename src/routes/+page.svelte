@@ -1,9 +1,10 @@
 <script>
+  import Toast from '$lib/components/Toast.svelte';
+  import { addToast } from '$lib/stores/toast';
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
-  import { addToast } from '$lib/stores/toast';
-  import Toast from '$lib/components/Toast.svelte';
+  import { fly } from 'svelte/transition';
 
   let tasks = [];
   let newTask = '';
@@ -12,92 +13,97 @@
 
   let showDeleteAllModal = false;
   let showEditModal = false;
+  let showDeleteOneModal = false; // 👈 baru
+  let taskToDelete = null;        // 👈 baru
   let taskToEdit = null;
   let editText = '';
   let editInputEl;
 
-  // Load tasks
+  function generateId(length = 5) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let randomPart = '';
+    for (let i = 0; i < length; i++) {
+      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const timePart = Date.now().toString().slice(-2);
+    return randomPart + timePart;
+  }
+
   async function loadTasks() {
     try {
       const { data, error } = await supabase
         .from('tasks')
         .select('*')
         .order('created_at', { ascending: true });
-
       if (error) throw error;
       tasks = data ?? [];
     } catch (err) {
       console.error('Error loading tasks:', err);
+      addToast('Gagal memuat tugas.', 'error');
     } finally {
       isLoading = false;
     }
   }
 
-  onMount(async () => {
-    await loadTasks();
-
-    const channel = supabase
-      .channel('tasks_channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, payload => {
-        switch(payload.eventType) {
-          case 'INSERT':
-            tasks = [...tasks, payload.new];
-            break;
-          case 'UPDATE':
-            tasks = tasks.map(t => t.id === payload.new.id ? payload.new : t);
-            break;
-          case 'DELETE':
-            tasks = tasks.filter(t => t.id !== payload.old.id);
-            break;
-        }
-      })
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
-  });
+  onMount(loadTasks);
 
   async function addTask() {
     const text = newTask.trim();
-    if (!text) return;
+    if (!text || isAdding) return;
 
+    isAdding = true;
     try {
-      const { error } = await supabase.from('tasks').insert([{ text, done: false }]);
+      const newTaskObj = { id: generateId(5), text, done: false };
+      const { error } = await supabase.from('tasks').insert([newTaskObj]);
+
       if (error) throw error;
+
+      tasks = [...tasks, newTaskObj];
       addToast('Task berhasil ditambahkan!', 'success');
       newTask = '';
     } catch (err) {
-      console.error(err);
+      console.error('Error adding task:', err);
       addToast('Gagal menambahkan task.', 'error');
+    } finally {
+      isAdding = false;
     }
   }
 
   async function toggleTask(task) {
-    // Optimistic update
+    const oldDone = task.done;
     task.done = !task.done;
+    tasks = [...tasks];
 
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ done: task.done })
-        .eq('id', task.id);
+      const { error } = await supabase.from('tasks').update({ done: task.done }).eq('id', task.id);
       if (error) {
-        console.error('Error toggling task:', error);
-        task.done = !task.done; // rollback
+        task.done = oldDone;
+        tasks = [...tasks];
+        throw error;
       }
     } catch (err) {
       console.error('Error toggling task:', err);
-      task.done = !task.done; // rollback
+      addToast('Gagal mengubah status task.', 'error');
     }
+  }
+
+  function confirmDeleteTask(task) {
+    taskToDelete = task;
+    showDeleteOneModal = true;
   }
 
   async function deleteTask(id) {
     try {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
       if (error) throw error;
-      addToast('Task berhasil dihapus!', 'success');
+      tasks = tasks.filter(t => t.id !== id);
+      addToast('Task berhasil dihapus!', 'info');
     } catch (err) {
       console.error('Error deleting task:', err);
       addToast('Gagal menghapus task.', 'error');
+    } finally {
+      showDeleteOneModal = false;
+      taskToDelete = null;
     }
   }
 
@@ -107,13 +113,14 @@
   }
 
   async function clearAll() {
+    if (!tasks.length) return;
     try {
-      const { error } = await supabase.from('tasks').delete().neq('id', 0);
+      const ids = tasks.map(t => t.id);
+      const { error } = await supabase.from('tasks').delete().in('id', ids);
       if (error) throw error;
-      addToast('Semua task berhasil dihapus!', 'success');
-
-      tasks = []; // reset array di frontend
+      tasks = [];
       showDeleteAllModal = false;
+      addToast('Semua task berhasil dihapus!', 'info');
     } catch (err) {
       console.error('Error clearing tasks:', err);
       addToast('Gagal menghapus semua task.', 'error');
@@ -132,17 +139,23 @@
       showEditModal = false;
       return;
     }
+
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('tasks')
         .update({ text: editText.trim() })
-        .eq('id', taskToEdit.id);
+        .eq('id', taskToEdit.id)
+        .select();
+
       if (error) throw error;
-      addToast('Task berhasil diupdate!', 'success');
+
+      tasks = tasks.map(t => t.id === taskToEdit.id ? { ...t, text: data[0].text } : t);
+
+      addToast('Task berhasil diperbarui!', 'success');
       showEditModal = false;
     } catch (err) {
       console.error('Error saving edit:', err);
-      addToast('Gagal mengupdate task.', 'error');
+      addToast('Gagal memperbarui task.', 'error');
     }
   }
 
@@ -151,7 +164,6 @@
     if (e.key === 'Escape') showEditModal = false;
   }
 
-  // Computed
   $: completedCount = tasks.filter(t => t.done).length;
   $: totalCount = tasks.length;
   $: progress = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -174,7 +186,7 @@
         </div>
         <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
           <div
-            class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+            class="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out"
             style={`width: ${progress}%`}
           ></div>
         </div>
@@ -211,21 +223,18 @@
     {:else if hasTasks}
       <ul class="space-y-3 mb-6">
         {#each tasks as task (task.id)}
-          <li class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200/50">
+          <li
+            class="task-item flex items-center justify-between p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200/50"
+            in:fly={{ y: 20, duration: 300 }}
+            out:fly={{ y: -20, duration: 300 }}
+          >
             <div class="flex items-center gap-3 flex-1 min-w-0">
-              <input
-                type="checkbox"
-                checked={task.done}
-                on:change={() => toggleTask(task)}
-                class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"
-              />
-              <span class:line-through={task.done} class:opacity-60={task.done} class="truncate transition-all">
-                {task.text}
-              </span>
+              <input type="checkbox" checked={task.done} on:change={() => toggleTask(task)} class="w-5 h-5 rounded border-2 text-blue-500 focus:ring-blue-400 focus:ring-opacity-25 cursor-pointer"/>
+              <span class:line-through={task.done} class:opacity-60={task.done} class="truncate transition-all">{task.text}</span>
             </div>
             <div class="flex gap-2 ml-2">
               <button on:click={() => openEdit(task)} class="p-2 hover:bg-slate-200 rounded-full transition-all"><Pencil size={16}/></button>
-              <button on:click={() => deleteTask(task.id)} class="p-2 hover:bg-red-100 rounded-full transition-all text-red-500"><Trash2 size={16}/></button>
+              <button on:click={() => confirmDeleteTask(task)} class="p-2 hover:bg-red-100 rounded-full transition-all text-red-500"><Trash2 size={16}/></button>
             </div>
           </li>
         {/each}
@@ -241,6 +250,7 @@
     {/if}
   </div>
 
+  <!-- Modal hapus semua -->
   {#if showDeleteAllModal}
     <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
@@ -254,11 +264,32 @@
     </div>
   {/if}
 
+  <!-- Modal hapus satu -->
+  {#if showDeleteOneModal}
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+        <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
+        <p>Apakah kamu yakin ingin menghapus task <b>{taskToDelete?.text}</b>?</p>
+        <div class="flex justify-end gap-3 mt-4">
+          <button on:click={() => showDeleteOneModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
+          <button on:click={() => deleteTask(taskToDelete.id)} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Modal edit -->
   {#if showEditModal}
     <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
         <h3 class="font-bold text-lg text-slate-800">Edit Tugas</h3>
-        <input bind:this={editInputEl} bind:value={editText} on:keydown={handleEditKeydown} type="text" class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"/>
+        <input
+          bind:this={editInputEl}
+          bind:value={editText}
+          on:keydown={handleEditKeydown}
+          type="text"
+          class="w-full px-4 py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
+        />
         <div class="flex justify-end gap-3 mt-4">
           <button on:click={() => showEditModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
           <button on:click={saveEdit} class="px-4 py-2 rounded-xl bg-blue-500 text-white">Simpan</button>

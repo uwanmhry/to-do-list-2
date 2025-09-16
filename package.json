@@ -30,6 +30,7 @@
 		"better-sqlite3": "^12.2.0",
 		"lucide-svelte": "^0.544.0",
 		"sqlite3": "^5.1.7",
-		"svelte-dnd-action": "^0.9.65"
+		"svelte-dnd-action": "^0.9.65",
+		"uuid": "^13.0.0"
 	}
 }
