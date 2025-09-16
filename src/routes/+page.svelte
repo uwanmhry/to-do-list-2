@@ -4,17 +4,18 @@
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, AlertCircle } from 'lucide-svelte';
-  import { fly } from 'svelte/transition';
+  import { fly, fade, scale } from 'svelte/transition';
 
   let tasks = [];
   let newTask = '';
   let isLoading = true;
   let isAdding = false;
 
-  let showDeleteAllModal = false;
+  // 🔥 modal konfirmasi (bisa untuk 1 task atau semua)
+  let showDeleteModal = false;
+  let deleteTarget = null; // null = semua, {id, text} = task tertentu
+
   let showEditModal = false;
-  let showDeleteOneModal = false; // 👈 baru
-  let taskToDelete = null;        // 👈 baru
   let taskToEdit = null;
   let editText = '';
   let editInputEl;
@@ -55,9 +56,7 @@
     try {
       const newTaskObj = { id: generateId(5), text, done: false };
       const { error } = await supabase.from('tasks').insert([newTaskObj]);
-
       if (error) throw error;
-
       tasks = [...tasks, newTaskObj];
       addToast('Task berhasil ditambahkan!', 'success');
       newTask = '';
@@ -73,7 +72,6 @@
     const oldDone = task.done;
     task.done = !task.done;
     tasks = [...tasks];
-
     try {
       const { error } = await supabase.from('tasks').update({ done: task.done }).eq('id', task.id);
       if (error) {
@@ -87,43 +85,31 @@
     }
   }
 
-  function confirmDeleteTask(task) {
-    taskToDelete = task;
-    showDeleteOneModal = true;
+  function confirmDelete(task = null) {
+    deleteTarget = task; // null = semua, object = task tertentu
+    showDeleteModal = true;
   }
 
-  async function deleteTask(id) {
+  async function doDelete() {
     try {
-      const { error } = await supabase.from('tasks').delete().eq('id', id);
-      if (error) throw error;
-      tasks = tasks.filter(t => t.id !== id);
-      addToast('Task berhasil dihapus!', 'info');
+      if (deleteTarget) {
+        // hapus 1 task
+        const { error } = await supabase.from('tasks').delete().eq('id', deleteTarget.id);
+        if (error) throw error;
+        tasks = tasks.filter(t => t.id !== deleteTarget.id);
+        addToast('Task berhasil dihapus!', 'info');
+      } else {
+        // hapus semua
+        const ids = tasks.map(t => t.id);
+        const { error } = await supabase.from('tasks').delete().in('id', ids);
+        if (error) throw error;
+        tasks = [];
+        addToast('Semua task berhasil dihapus!', 'info');
+      }
+      showDeleteModal = false;
     } catch (err) {
-      console.error('Error deleting task:', err);
+      console.error('Error deleting task(s):', err);
       addToast('Gagal menghapus task.', 'error');
-    } finally {
-      showDeleteOneModal = false;
-      taskToDelete = null;
-    }
-  }
-
-  function confirmClearAll() {
-    if (!tasks.length) return;
-    showDeleteAllModal = true;
-  }
-
-  async function clearAll() {
-    if (!tasks.length) return;
-    try {
-      const ids = tasks.map(t => t.id);
-      const { error } = await supabase.from('tasks').delete().in('id', ids);
-      if (error) throw error;
-      tasks = [];
-      showDeleteAllModal = false;
-      addToast('Semua task berhasil dihapus!', 'info');
-    } catch (err) {
-      console.error('Error clearing tasks:', err);
-      addToast('Gagal menghapus semua task.', 'error');
     }
   }
 
@@ -234,7 +220,7 @@
             </div>
             <div class="flex gap-2 ml-2">
               <button on:click={() => openEdit(task)} class="p-2 hover:bg-slate-200 rounded-full transition-all"><Pencil size={16}/></button>
-              <button on:click={() => confirmDeleteTask(task)} class="p-2 hover:bg-red-100 rounded-full transition-all text-red-500"><Trash2 size={16}/></button>
+              <button on:click={() => confirmDelete(task)} class="p-2 hover:bg-red-100 rounded-full transition-all text-red-500"><Trash2 size={16}/></button>
             </div>
           </li>
         {/each}
@@ -246,42 +232,32 @@
     {/if}
 
     {#if hasTasks}
-      <button on:click={confirmClearAll} class="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all font-medium">Hapus Semua</button>
+      <button on:click={() => confirmDelete()} class="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl transition-all font-medium">Hapus Semua</button>
     {/if}
   </div>
 
-  <!-- Modal hapus semua -->
-  {#if showDeleteAllModal}
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+  {#if showDeleteModal}
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" transition:fade>
+      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4" in:fly={{ y: 40, duration: 250 }} out:fly={{ y: -40, duration: 250 }}>
         <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
-        <p>Apakah kamu yakin ingin menghapus semua tugas?</p>
+        <p>
+          {#if deleteTarget}
+            Apakah kamu yakin ingin menghapus task "<span class="font-medium">{deleteTarget.text}</span>"?
+          {:else}
+            Apakah kamu yakin ingin menghapus semua tugas?
+          {/if}
+        </p>
         <div class="flex justify-end gap-3 mt-4">
-          <button on:click={() => showDeleteAllModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
-          <button on:click={clearAll} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
+          <button on:click={() => showDeleteModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
+          <button on:click={doDelete} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
         </div>
       </div>
     </div>
   {/if}
 
-  <!-- Modal hapus satu -->
-  {#if showDeleteOneModal}
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
-        <h3 class="font-bold text-lg text-slate-800">Konfirmasi</h3>
-        <p>Apakah kamu yakin ingin menghapus task <b>{taskToDelete?.text}</b>?</p>
-        <div class="flex justify-end gap-3 mt-4">
-          <button on:click={() => showDeleteOneModal = false} class="px-4 py-2 rounded-xl bg-slate-200">Batal</button>
-          <button on:click={() => deleteTask(taskToDelete.id)} class="px-4 py-2 rounded-xl bg-red-500 text-white">Hapus</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Modal edit -->
   {#if showEditModal}
-    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4">
+    <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" transition:fade>
+      <div class="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full space-y-4" in:scale={{ start: 0.9, duration: 250 }} out:scale={{ end: 0.9, duration: 200 }}>
         <h3 class="font-bold text-lg text-slate-800">Edit Tugas</h3>
         <input
           bind:this={editInputEl}
