@@ -1,11 +1,11 @@
 <script>
   import Toast from '$lib/components/Toast.svelte';
-  import Auth from '$lib/components/Auth.svelte';
   import { addToast } from '$lib/stores/toast';
   import { supabase } from '$lib/supabaseClient';
   import { onMount } from 'svelte';
   import { Plus, Pencil, Trash2, LogOut, AlertCircle, CheckCircle, Circle, Loader } from 'lucide-svelte';
   import { fly, fade, scale } from 'svelte/transition';
+  import { navigate } from '$app/navigation';
 
   let tasks = [];
   let newTask = '';
@@ -69,6 +69,8 @@
         loadTasks();
       } else {
         isLoading = false;
+        // Redirect ke halaman auth jika belum login
+        navigate('/auth', { replace: true });
       }
     });
 
@@ -110,6 +112,8 @@
         user = null;
         tasks = [];
         addToast('Anda telah logout', 'info');
+        // Redirect ke halaman auth setelah logout
+        navigate('/auth', { replace: true });
       }
       else if (event === 'TOKEN_REFRESHED') {
         // Refresh user data ketika token diperbarui
@@ -251,6 +255,7 @@
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+      // Redirect akan ditangani oleh auth state change listener
     } catch (err) {
       console.error('Error logging out:', err);
       addToast('Gagal logout.', 'error');
@@ -278,7 +283,7 @@
       showEditModal = false;
     }
   }
-
+  
   $: completedCount = tasks.filter(t => t.done).length;
   $: totalCount = tasks.length;
   $: progress = totalCount ? Math.round((completedCount / totalCount) * 100) : 0;
@@ -288,10 +293,7 @@
 
 <Toast />
 
-{#if !user}
-  <!-- Tampilkan komponen Auth terpisah -->
-  <Auth />
-{:else}
+{#if user}
   <!-- Tampilkan halaman utama dengan tasks -->
   <main class="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-8 px-4 md:px-6">
     <div class="max-w-2xl mx-auto">
@@ -584,29 +586,5 @@
   /* Smooth transitions for all interactive elements */
   button, input, .task-item {
     transition: all 0.2s ease-in-out;
-  }
-  
-  /* Custom scrollbar for task list */
-  .task-list {
-    scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 #f1f5f9;
-  }
-  
-  .task-list::-webkit-scrollbar {
-    width: 6px;
-  }
-  
-  .task-list::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 3px;
-  }
-  
-  .task-list::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
-  }
-  
-  .task-list::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
   }
 </style>
