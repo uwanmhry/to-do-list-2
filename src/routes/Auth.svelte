@@ -14,10 +14,8 @@
     successMessage = '';
   }
 
-  // Fungsi untuk mengecek apakah email terdaftar di auth.users
   async function isEmailRegistered(email) {
     try {
-      // Coba sign in dengan OTP (cara yang reliable untuk cek email terdaftar)
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
@@ -25,39 +23,35 @@
         }
       });
       
-      return !error; // Jika tidak error, berarti email terdaftar
+      return !error;
     } catch (error) {
       console.error('Error checking email:', error);
       return false;
     }
   }
 
-  // Fungsi untuk handle sign up
   async function handleSignUp() {
     try {
       resetMessages();
       loading = true;
       
-      // Validasi input
       if (!username.trim()) throw new Error('Username harus diisi');
       if (!email.trim()) throw new Error('Email harus diisi');
       if (!password) throw new Error('Password harus diisi');
       if (password.length < 6) throw new Error('Password minimal 6 karakter');
 
-      // 1. DAFTAR USER DI AUTH.USERS (email & password)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            username: username.trim() // Simpan username sementara di metadata
+            username: username.trim()
           }
         }
       });
 
       if (authError) throw authError;
 
-      // 2. TAMBAHKAN KE TABLE PROFILES (username & email)
       if (authData.user) {
         const { error: profileError } = await supabase
           .from('profiles')
@@ -71,7 +65,6 @@
 
         if (profileError) {
           console.error('Error creating profile:', profileError);
-          // Tetap lanjutkan, karena user sudah terdaftar di auth
         }
       }
 
@@ -83,7 +76,6 @@
     }
   }
 
-  // Fungsi untuk handle sign in
   async function handleSignIn() {
     try {
       resetMessages();
@@ -92,7 +84,6 @@
       if (!email.trim()) throw new Error('Email harus diisi');
       if (!password) throw new Error('Password harus diisi');
 
-      // Langsung coba sign in
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -100,7 +91,6 @@
 
       if (error) {
         if (error.message === 'Invalid login credentials') {
-          // Cek apakah email terdaftar
           const emailRegistered = await isEmailRegistered(email);
           if (emailRegistered) {
             throw new Error('Password salah');
@@ -117,7 +107,6 @@
     }
   }
 
-  // Fungsi untuk handle lupa password
   async function handlePasswordReset() {
     try {
       resetMessages();
@@ -125,13 +114,9 @@
       
       if (!email.trim()) throw new Error('Email harus diisi');
 
-      // Cek apakah email terdaftar di auth.users
       const emailRegistered = await isEmailRegistered(email);
-      if (!emailRegistered) {
-        throw new Error('Email tidak terdaftar');
-      }
+      if (!emailRegistered) throw new Error('Email tidak terdaftar');
 
-      // Kirim email reset password
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/callback`,
       });
@@ -145,9 +130,16 @@
       loading = false;
     }
   }
+
+  // Handle Enter key for forms
+  function handleKeyPress(event, action) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      action();
+    }
+  }
 </script>
 
-<!-- UI Code (tetap sama) -->
 <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden p-6 space-y-6">
   <header class="text-center">
     <h1 class="text-3xl font-bold text-blue-700 mb-2">Todo List</h1>
@@ -176,6 +168,7 @@
           id="username"
           class="w-full px-4 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="Nama pengguna"
+          on:keypress={(e) => handleKeyPress(e, handleSignUp)}
         />
       </div>
     {/if}
@@ -188,6 +181,11 @@
         id="email"
         class="w-full px-4 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         placeholder="email@example.com"
+        on:keypress={(e) => {
+          if (authView === 'signin') handleKeyPress(e, handleSignIn);
+          else if (authView === 'signup') handleKeyPress(e, handleSignUp);
+          else if (authView === 'forgotten') handleKeyPress(e, handlePasswordReset);
+        }}
       />
     </div>
     
@@ -200,6 +198,10 @@
           id="password"
           class="w-full px-4 py-2 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="Password Anda"
+          on:keypress={(e) => {
+            if (authView === 'signin') handleKeyPress(e, handleSignIn);
+            else if (authView === 'signup') handleKeyPress(e, handleSignUp);
+          }}
         />
         {#if authView === 'signup'}
           <p class="text-xs text-gray-500 mt-1">Minimal 6 karakter</p>

@@ -26,9 +26,9 @@
 </script>
 
 <div
-  class="fixed inset-0 flex items-center justify-center p-4 z-50"
+  class="fixed inset-0 bg-black/20 flex items-center justify-center p-4 z-50"
   on:click={handleClickOutside}
-  style="background: rgba(0, 0, 0, 0.15); backdrop-filter: blur(1.5px); -webkit-backdrop-filter: blur(1.5px);"
+  style="backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);"
 >
   <div 
     class="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto"
@@ -46,13 +46,9 @@
   @keyframes fadeIn {
     from {
       opacity: 0;
-      backdrop-filter: blur(0px);
-      -webkit-backdrop-filter: blur(0px);
     }
     to {
       opacity: 1;
-      backdrop-filter: blur(1.5px);
-      -webkit-backdrop-filter: blur(1.5px);
     }
   }
 </style>
