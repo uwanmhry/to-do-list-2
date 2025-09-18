@@ -27,14 +27,12 @@
   });
 </script>
 
-<main class="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 py-8 px-4">
-  {#if loading}
-    <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden p-6 text-center">
-      <p class="text-blue-500">Loading...</p>
-    </div>
-  {:else if !session}
-    <Auth />
-  {:else}
-    <TodoApp {session} />
-  {/if}
-</main>
+{#if loading}
+  <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden p-6 text-center">
+    <p class="text-blue-500">Loading...</p>
+  </div>
+{:else if !session}
+  <Auth />
+{:else}
+  <TodoApp {session} />
+{/if}

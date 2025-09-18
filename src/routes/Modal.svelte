@@ -1,54 +1,57 @@
 <script>
-  import { onMount, createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
 
-  const dispatch = createEventDispatcher();
+    const dispatch = createEventDispatcher();
 
-  function handleClose() {
-    dispatch('close');
-  }
+    export let customClass = '';
 
-  function handleClickOutside(event) {
-    if (event.target === event.currentTarget) {
-      handleClose();
+    function handleClose() {
+        dispatch('close');
     }
-  }
 
-  onMount(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        handleClose();
-      }
-    };
+    function handleClickOutside(event) {
+        if (event.target === event.currentTarget) {
+            handleClose();
+        }
+    }
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
+    onMount(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                handleClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    });
 </script>
 
 <div
-  class="fixed inset-0 bg-black/20 flex items-center justify-center p-4 z-50"
-  on:click={handleClickOutside}
-  style="backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);"
+    class="fixed inset-0 bg-slate-900/40 flex items-center justify-center p-4 z-50 transition-opacity duration-300 backdrop-blur-xl"
+    on:click={handleClickOutside}
 >
-  <div 
-    class="bg-white rounded-xl shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto"
-    on:click|stopPropagation
-  >
-    <slot />
-  </div>
+    <div 
+        class="bg-slate-900/40 border border-white/20 rounded-2xl shadow-xl max-w-sm w-full max-h-[90vh] overflow-y-auto transform-gpu transition-transform duration-300 animate-fade-in {customClass}"
+        on:click|stopPropagation
+    >
+        <slot />
+    </div>
 </div>
 
 <style>
-  div {
-    animation: fadeIn 0.2s ease-out;
-  }
-  
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
+    .animate-fade-in {
+        animation: fadeIn 0.3s ease-out forwards;
     }
-    to {
-      opacity: 1;
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1);
+        }
     }
-  }
 </style>
